@@ -1,0 +1,146 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Skycast · NOAA Forecast</title>
+  <meta name="description" content="Location-based weather forecasts from the National Weather Service (NOAA)." />
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Ccircle cx='12' cy='12' r='5' fill='%23f5b82e'/%3E%3C/svg%3E" />
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <header class="topbar">
+    <div class="topbar-inner">
+      <a class="brand" href="#" id="brand" aria-label="Skycast home">
+        <span class="brand-mark" aria-hidden="true"></span>
+        <span class="brand-name">Skycast</span>
+      </a>
+
+      <div class="search" id="search">
+        <svg class="search-icon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="6.5"/><path d="m16 16 4.5 4.5"/></svg>
+        <input id="search-input" type="search" autocomplete="off" spellcheck="false"
+               placeholder="City, ZIP code, or lat, lon"
+               role="combobox" aria-autocomplete="list" aria-expanded="false" aria-controls="search-results"
+               aria-label="Search for a location" />
+        <ul id="search-results" class="search-results" role="listbox" hidden></ul>
+      </div>
+
+      <div class="topbar-actions">
+        <button class="btn btn-ghost" id="locate-btn" type="button" title="Use my current location">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="3.5"/><path d="M12 2.5v3M12 18.5v3M2.5 12h3M18.5 12h3"/><circle cx="12" cy="12" r="7"/></svg>
+          <span class="btn-label">My location</span>
+        </button>
+        <div class="segmented" role="group" aria-label="Units">
+          <button type="button" data-units="us" aria-pressed="true">°F</button>
+          <button type="button" data-units="metric" aria-pressed="false">°C</button>
+        </div>
+      </div>
+    </div>
+  </header>
+
+  <main class="page">
+    <!-- First-run / empty state -->
+    <section id="welcome" class="welcome" hidden>
+      <div class="welcome-art" aria-hidden="true"></div>
+      <h1>Your forecast, straight from the National Weather Service</h1>
+      <p>Skycast pulls current observations, hourly and 7-day predictions, active alerts, and the local forecaster’s discussion from NOAA for any U.S. location.</p>
+      <button class="btn btn-primary btn-lg" id="welcome-locate" type="button">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="3.5"/><path d="M12 2.5v3M12 18.5v3M2.5 12h3M18.5 12h3"/><circle cx="12" cy="12" r="7"/></svg>
+        Use my location
+      </button>
+      <p class="welcome-or">or try one of these</p>
+      <div class="chips" id="quick-picks"></div>
+    </section>
+
+    <!-- Loading state (first load only; refreshes dim the dashboard instead) -->
+    <section id="loading" class="status-panel" hidden>
+      <div class="spinner" aria-hidden="true"></div>
+      <p id="loading-text">Loading forecast…</p>
+    </section>
+
+    <!-- Error state -->
+    <section id="error" class="status-panel status-error" hidden role="alert">
+      <h2 id="error-title">Something went wrong</h2>
+      <p id="error-text"></p>
+      <button class="btn btn-primary" id="error-retry" type="button">Try again</button>
+    </section>
+
+    <!-- Main dashboard -->
+    <div id="dashboard" class="dashboard" hidden>
+      <div class="place-row">
+        <div>
+          <h1 id="place-name" class="place-name"></h1>
+          <p id="place-meta" class="place-meta"></p>
+        </div>
+        <button class="btn btn-ghost" id="refresh-btn" type="button" title="Refresh forecast">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 12a8 8 0 1 1-2.34-5.66"/><path d="M20 4v4.5h-4.5"/></svg>
+          <span class="btn-label">Refresh</span>
+        </button>
+      </div>
+
+      <div id="alerts" class="alerts"></div>
+
+      <div class="grid-top">
+        <section id="current" class="card hero" aria-labelledby="current-title">
+          <h2 id="current-title" class="visually-hidden">Current conditions</h2>
+          <div id="current-body"></div>
+        </section>
+
+        <section class="card outlook" aria-labelledby="outlook-title">
+          <h2 id="outlook-title" class="card-title">Prediction at a glance</h2>
+          <ul id="insights" class="insights"></ul>
+          <div class="period-summary" id="period-summary"></div>
+        </section>
+      </div>
+
+      <section class="card" aria-labelledby="hourly-title">
+        <div class="card-head">
+          <h2 id="hourly-title" class="card-title">Hourly forecast</h2>
+          <div class="card-controls">
+            <div class="segmented segmented-sm" role="group" aria-label="Hours to show" id="range-toggle">
+              <button type="button" data-range="24" aria-pressed="false">24 h</button>
+              <button type="button" data-range="48" aria-pressed="true">48 h</button>
+              <button type="button" data-range="72" aria-pressed="false">72 h</button>
+            </div>
+            <div class="segmented segmented-sm" role="group" aria-label="View" id="view-toggle">
+              <button type="button" data-view="chart" aria-pressed="true">Chart</button>
+              <button type="button" data-view="table" aria-pressed="false">Table</button>
+            </div>
+          </div>
+        </div>
+        <div id="hourly-chart" class="hourly-chart"></div>
+        <div id="hourly-table" class="table-wrap" hidden></div>
+      </section>
+
+      <section class="card" aria-labelledby="daily-title">
+        <div class="card-head">
+          <h2 id="daily-title" class="card-title">7-day forecast</h2>
+          <span class="card-hint">Select a day for the full forecast</span>
+        </div>
+        <ol id="daily" class="daily"></ol>
+      </section>
+
+      <details class="card discussion" id="discussion">
+        <summary>
+          <span class="card-title">Forecaster’s discussion</span>
+          <span class="card-hint" id="discussion-hint">The reasoning behind the forecast, written by your local NWS office</span>
+        </summary>
+        <div id="discussion-body" class="discussion-body"></div>
+      </details>
+    </div>
+  </main>
+
+  <footer class="footer">
+    <p>Forecast data: <a href="https://www.weather.gov/documentation/services-web-api" target="_blank" rel="noopener">National Weather Service API</a> (NOAA). Place search: <a href="https://open-meteo.com/en/docs/geocoding-api" target="_blank" rel="noopener">Open-Meteo Geocoding</a>.</p>
+    <p>For official warnings and life-safety decisions, always check <a href="https://www.weather.gov" target="_blank" rel="noopener">weather.gov</a>.</p>
+  </footer>
+
+  <div id="tooltip" class="tooltip" role="status" aria-live="polite" hidden></div>
+
+  <script src="js/format.js"></script>
+  <script src="js/icons.js"></script>
+  <script src="js/noaa.js"></script>
+  <script src="js/charts.js"></script>
+  <script src="js/app.js"></script>
+</body>
+</html>
