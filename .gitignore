@@ -8,3 +8,10 @@ desktop.ini
 
 # Local tooling config
 .claude/
+
+# Station data and Python artefacts
+station/*.db
+station/*.db-wal
+station/*.db-shm
+__pycache__/
+*.pyc

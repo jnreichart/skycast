@@ -417,6 +417,29 @@ table.data tr.day-start td { border-top: 2px solid var(--baseline); }
 .day-detail p { margin: 0; color: var(--text-secondary); font-size: 14px; }
 .day-detail .dd-meta { font-size: 12.5px; color: var(--text-muted); margin-top: 4px; }
 
+/* ---------- home weather station ---------- */
+.station .st-head { display: flex; align-items: baseline; gap: 16px; flex-wrap: wrap; }
+.st-temp {
+  font-size: clamp(44px, 6vw, 60px); font-weight: 600; line-height: 1;
+  letter-spacing: -0.03em; color: var(--text-primary);
+}
+.st-temp sup { font-size: .36em; font-weight: 500; vertical-align: top; position: relative; top: .3em; margin-left: 2px; letter-spacing: 0; }
+.st-meta { display: flex; flex-direction: column; gap: 2px; }
+.st-compare { font-size: 14.5px; font-weight: 550; color: var(--text-primary); }
+.st-age { font-size: 13px; color: var(--text-muted); }
+.st-tiles {
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(128px, 1fr));
+  gap: 8px; margin-top: 16px;
+}
+.st-tile { background: var(--surface-2); border-radius: 10px; padding: 9px 12px; }
+.st-label { font-size: 12px; color: var(--text-secondary); }
+.st-value { font-size: 17px; font-weight: 600; }
+.st-sub { font-size: 12px; color: var(--text-muted); margin-top: 1px; }
+.st-hint { margin: 12px 0 0; font-size: 13.5px; color: var(--text-secondary); }
+.st-chart { margin-top: 14px; position: relative; }
+.st-foot { margin-top: 10px; font-size: 12.5px; color: var(--text-muted); }
+.station-empty { margin: 4px 0; color: var(--text-secondary); font-size: 14px; }
+
 /* ---------- discussion ---------- */
 .discussion summary { list-style: none; cursor: pointer; display: flex; flex-direction: column; gap: 2px; position: relative; padding-right: 28px; }
 .discussion summary::-webkit-details-marker { display: none; }

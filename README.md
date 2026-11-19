@@ -18,6 +18,28 @@ National Weather Service API (`api.weather.gov`, run by NOAA).
 - **Forecaster's discussion**: the latest Area Forecast Discussion from your local NWS office.
 - °F / °C toggle, light and dark themes, mobile layout, auto-refresh every 15 minutes.
 
+## Home weather station (optional)
+
+[`station/`](station/) turns a Raspberry Pi with a BME280 sensor into your own
+weather station. It samples temperature, humidity and pressure, stores the history
+in SQLite, and serves both a JSON API and this web app over your home network.
+
+The app then shows your actual back garden next to NOAA's forecast — including how
+far your readings differ from the official NWS station it forecasts against — plus a
+24-hour history chart and a 3-hour pressure trend.
+
+The Pi serves the app itself on purpose: an HTTPS page can't read a plain-HTTP
+address on your LAN, so the hosted copy could never see your sensor. Same box, same
+origin, no certificates and no cloud account.
+
+Roughly $65 of parts. See [station/README.md](station/README.md) for the parts list,
+wiring, siting (which matters more than the hardware), and setup. To try it without
+any hardware:
+
+```bash
+python3 station/server.py --mock --seed-hours 30
+```
+
 ## Run it
 
 Serve the folder with any static server, then open http://localhost:8000:
@@ -60,7 +82,14 @@ js/format.js    unit conversion and time zone–aware formatting
 js/icons.js     inline SVG weather icons and NOAA text → icon mapping
 js/noaa.js      NWS API client and Open-Meteo place search
 js/charts.js    hourly SVG charts and table
+js/station.js   home station discovery, readings panel and history chart
 js/app.js       state, rendering, insights, search, geolocation
+
+station/        optional Raspberry Pi weather station
+  bme280.py     sensor driver (+ mock for development)
+  store.py      SQLite history, trends and extremes
+  server.py     sampler, JSON API, and static serving of this app
+  install.sh    systemd service installer
 ```
 
 Coverage: the United States and its territories only (an NWS limitation).

@@ -109,6 +109,7 @@
     renderHourly();
     renderDaily(d);
     resetDiscussion(d);
+    if (window.WX.station) window.WX.station.render();
   }
 
   function renderHeader(d) {
@@ -764,7 +765,18 @@
   if (window.innerWidth < 560 && !store.get('range', null)) state.range = 24;
   setPressed('#range-toggle', 'range', state.range);
 
+  // Exposed for the station module: it reads the NWS observation to compare against,
+  // and the forecast time zone so its chart labels match the rest of the page.
+  window.WX.app = {
+    data: () => state.data,
+    hasPlace: () => !!state.place,
+    loadPlace: (p) => loadPlace(p),
+    timeZone: () => (state.data && state.data.point.timeZone) || Intl.DateTimeFormat().resolvedOptions().timeZone,
+  };
+
   const initial = placeFromHash() || store.get('last', null);
   if (initial) loadPlace(initial);
   else show('welcome');
+
+  if (window.WX.station) window.WX.station.start();
 })();
