@@ -26,6 +26,7 @@ from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, urlparse
 
 from bme280 import open_sensor
+from forecast import ForecastArchiver
 from store import Store
 
 LOG = logging.getLogger("station")
@@ -88,6 +89,7 @@ class StationHandler(SimpleHTTPRequestHandler):
     sampler: Sampler
     store: Store
     config: dict
+    archiver: ForecastArchiver | None = None
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, directory=APP_ROOT, **kwargs)
@@ -148,6 +150,33 @@ class StationHandler(SimpleHTTPRequestHandler):
                 "reads": self.sampler.total_reads,
                 "consecutive_errors": self.sampler.consecutive_errors,
                 "last_error": self.sampler.last_error,
+                "forecast_archive": self.archiver.status() if self.archiver else {"enabled": False},
+            })
+            return
+
+        if path == "/api/accuracy":
+            params = parse_qs(route.query)
+            try:
+                days = min(400.0, max(1.0, float(params.get("days", ["30"])[0])))
+                lead = min(48.0, max(1.0, float(params.get("lead", ["24"])[0])))
+                series_days = min(14.0, max(1.0, float(params.get("series_days", ["3"])[0])))
+            except ValueError:
+                self._send_json({"error": "days, lead and series_days must be numbers"}, 400)
+                return
+            archived = self.store.forecast_count()
+            self._send_json({
+                # Scores are worth showing whenever an archive exists, even if
+                # archiving has since been turned off.
+                "enabled": self.archiver is not None or archived > 0,
+                "archiving": self.archiver is not None,
+                "days": days,
+                "by_lead": self.store.accuracy(days),
+                "series": {
+                    "lead_hours": lead,
+                    "days": series_days,
+                    "points": self.store.paired_series(lead, series_days),
+                },
+                "forecasts_archived": archived,
             })
             return
 
@@ -206,6 +235,37 @@ def seed_history(store: Store, hours: float, altitude_m: float = 0.0, step_secon
     return count
 
 
+def seed_forecasts(store: Store, hours: float) -> int:
+    """Dev helper: invent past forecasts for the hours already in the store.
+
+    Each is the measured value plus a bias and noise that both grow with lead
+    time, which is roughly how real forecasts behave — so the accuracy report has
+    something meaningful to show before any real archiving has happened.
+    """
+    import random
+
+    from store import LEAD_BUCKETS
+
+    actuals = store.history(hours=hours, max_points=2000)
+    rows = []
+    for point in actuals:
+        hour_ts = int(point["ts"] // 3600) * 3600
+        for lead in LEAD_BUCKETS:
+            bias = 0.3 + lead * 0.03
+            noise = random.gauss(0.0, 0.4 + lead * 0.045)
+            rows.append({
+                "valid_ts": float(hour_ts),
+                "fetched_ts": float(hour_ts - lead * 3600),
+                "issued_ts": float(hour_ts - lead * 3600),
+                "lead_hours": float(lead),
+                "temp_c": round(point["temp_c"] + bias + noise, 2),
+                "humidity": point["humidity"],
+                "pop": 0,
+                "short": "Simulated forecast",
+            })
+    return store.record_forecasts(rows)
+
+
 def local_ip() -> str:
     """Best-effort LAN address, for printing a URL you can open from another device."""
     s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
@@ -232,6 +292,10 @@ def main() -> int:
     ap.add_argument("--address", default="0x76", help="I2C address, 0x76 or 0x77 (default 0x76)")
     ap.add_argument("--retain-days", type=int, default=400)
     ap.add_argument("--mock", action="store_true", help="fake readings, for development without hardware")
+    ap.add_argument("--forecast-interval", type=float, default=3600.0,
+                    help="seconds between NOAA forecast archive fetches (default 3600)")
+    ap.add_argument("--no-forecast-archive", action="store_true",
+                    help="don't archive NOAA forecasts, so nothing is scored")
     ap.add_argument("--seed-hours", type=float, default=0.0,
                     help="dev only: backfill this many hours of mock history before starting")
     ap.add_argument("-v", "--verbose", action="store_true")
@@ -254,11 +318,22 @@ def main() -> int:
     if args.seed_hours > 0:
         LOG.info("seeding %.1f hours of mock history", args.seed_hours)
         LOG.info("backfilled %d readings", seed_history(store, args.seed_hours, args.altitude))
+        LOG.info("backfilled %d simulated forecast rows", seed_forecasts(store, args.seed_hours))
 
     sampler = Sampler(sensor, store, args.interval)
     sampler.start()
 
+    archiver = None
+    if args.lat is not None and args.lon is not None and not args.no_forecast_archive:
+        archiver = ForecastArchiver(store, args.lat, args.lon, interval=args.forecast_interval)
+        archiver.start()
+        LOG.info("archiving NOAA forecasts for %.4f,%.4f every %.0f min — scoring builds up over the next few days",
+                 args.lat, args.lon, args.forecast_interval / 60)
+    elif not args.no_forecast_archive:
+        LOG.info("forecast scoring is off: pass --lat and --lon to turn it on")
+
     StationHandler.sampler = sampler
+    StationHandler.archiver = archiver
     StationHandler.store = store
     StationHandler.config = {
         "name": args.name,
@@ -291,6 +366,8 @@ def main() -> int:
         httpd.serve_forever()
     finally:
         sampler.stop()
+        if archiver:
+            archiver.stop()
         httpd.server_close()
         sensor.close()
         store.close()

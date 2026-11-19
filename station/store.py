@@ -14,7 +14,31 @@ CREATE TABLE IF NOT EXISTS readings (
     pressure_pa REAL
 );
 CREATE INDEX IF NOT EXISTS idx_readings_ts ON readings(ts);
+
+-- Every forecast read for a given hour, kept so it can be scored later against
+-- what the station actually measured.
+--
+-- Rows are keyed on when we READ the forecast, not when NOAA issued it: NOAA's
+-- grid update time can sit unchanged for hours, so keying on it would make
+-- successive polls overwrite each other and the short lead times would never
+-- fill up. lead_hours is therefore "how far ahead this prediction was looking
+-- when it was read" — which is also the question a reader actually has.
+CREATE TABLE IF NOT EXISTS forecasts (
+    valid_ts   REAL NOT NULL,   -- start of the hour the forecast applies to
+    fetched_ts REAL NOT NULL,   -- when the station read it
+    issued_ts  REAL,            -- NOAA's own update time, for provenance
+    lead_hours REAL NOT NULL,   -- valid_ts - fetched_ts, in hours
+    temp_c     REAL,
+    humidity   REAL,
+    pop        REAL,
+    short      TEXT,
+    PRIMARY KEY (valid_ts, fetched_ts)
+);
+CREATE INDEX IF NOT EXISTS idx_forecasts_valid ON forecasts(valid_ts);
 """
+
+# Lead times the accuracy report breaks out, in hours.
+LEAD_BUCKETS = (1, 3, 6, 12, 24, 48)
 
 
 class Store:
@@ -141,13 +165,126 @@ class Store:
             row = self._db.execute("SELECT MIN(ts) AS t FROM readings").fetchone()
         return row["t"] if row else None
 
+    # ---------- archived forecasts, and scoring them ----------
+
+    def record_forecasts(self, rows: list[dict[str, Any]]) -> int:
+        """Store one NOAA forecast run. `rows` carry valid_ts, fetched_ts, lead_hours, temp_c…"""
+        if not rows:
+            return 0
+        with self._lock:
+            self._db.executemany(
+                """
+                INSERT OR REPLACE INTO forecasts
+                    (valid_ts, fetched_ts, issued_ts, lead_hours, temp_c, humidity, pop, short)
+                VALUES (:valid_ts, :fetched_ts, :issued_ts, :lead_hours, :temp_c, :humidity, :pop, :short)
+                """,
+                rows,
+            )
+            self._db.commit()
+        return len(rows)
+
+    def forecast_count(self) -> int:
+        with self._lock:
+            return self._db.execute("SELECT COUNT(*) AS n FROM forecasts").fetchone()["n"]
+
+    def _accuracy_for_lead(self, lead: float, since: float, tolerance: float) -> dict[str, Any]:
+        """Compare the forecast closest to `lead` hours ahead with the measured hour.
+
+        For each hour there may be dozens of archived forecasts at different lead
+        times; this picks the one nearest the bucket, then joins it to the hourly
+        average of the station's own readings.
+        """
+        with self._lock:
+            row = self._db.execute(
+                """
+                WITH actual AS (
+                    SELECT CAST(ts / 3600 AS INTEGER) * 3600 AS hour_ts,
+                           AVG(temp_c) AS actual_c,
+                           COUNT(*)    AS n
+                    FROM readings WHERE ts >= ?
+                    GROUP BY hour_ts
+                ),
+                picked AS (
+                    SELECT valid_ts, temp_c, lead_hours,
+                           ROW_NUMBER() OVER (
+                               PARTITION BY valid_ts ORDER BY ABS(lead_hours - ?)
+                           ) AS rn
+                    FROM forecasts
+                    WHERE valid_ts >= ? AND ABS(lead_hours - ?) <= ? AND temp_c IS NOT NULL
+                )
+                SELECT COUNT(*)                            AS n,
+                       AVG(p.temp_c - a.actual_c)          AS bias_c,
+                       AVG(ABS(p.temp_c - a.actual_c))     AS mae_c,
+                       MAX(ABS(p.temp_c - a.actual_c))     AS worst_c
+                FROM picked p
+                JOIN actual a ON a.hour_ts = p.valid_ts
+                WHERE p.rn = 1 AND a.n >= 2
+                """,
+                (since, lead, since, lead, tolerance),
+            ).fetchone()
+        return {
+            "lead_hours": lead,
+            "hours_scored": row["n"] or 0,
+            "bias_c": round(row["bias_c"], 2) if row["bias_c"] is not None else None,
+            "mae_c": round(row["mae_c"], 2) if row["mae_c"] is not None else None,
+            "worst_c": round(row["worst_c"], 2) if row["worst_c"] is not None else None,
+        }
+
+    def accuracy(self, days: float = 30.0) -> list[dict[str, Any]]:
+        since = time.time() - days * 86400
+        out = []
+        for lead in LEAD_BUCKETS:
+            tolerance = max(1.0, lead * 0.25)
+            out.append(self._accuracy_for_lead(lead, since, tolerance))
+        return out
+
+    def paired_series(self, lead: float = 24.0, days: float = 3.0) -> list[dict[str, Any]]:
+        """Forecast-vs-measured pairs for charting, at one lead time."""
+        since = time.time() - days * 86400
+        tolerance = max(1.0, lead * 0.25)
+        with self._lock:
+            rows = self._db.execute(
+                """
+                WITH actual AS (
+                    SELECT CAST(ts / 3600 AS INTEGER) * 3600 AS hour_ts,
+                           AVG(temp_c) AS actual_c, COUNT(*) AS n
+                    FROM readings WHERE ts >= ?
+                    GROUP BY hour_ts
+                ),
+                picked AS (
+                    SELECT valid_ts, temp_c, lead_hours,
+                           ROW_NUMBER() OVER (
+                               PARTITION BY valid_ts ORDER BY ABS(lead_hours - ?)
+                           ) AS rn
+                    FROM forecasts
+                    WHERE valid_ts >= ? AND ABS(lead_hours - ?) <= ? AND temp_c IS NOT NULL
+                )
+                SELECT p.valid_ts AS ts, p.temp_c AS forecast_c, a.actual_c, p.lead_hours
+                FROM picked p
+                JOIN actual a ON a.hour_ts = p.valid_ts
+                WHERE p.rn = 1 AND a.n >= 2
+                ORDER BY p.valid_ts
+                """,
+                (since, lead, since, lead, tolerance),
+            ).fetchall()
+        return [
+            {
+                "ts": r["ts"],
+                "forecast_c": round(r["forecast_c"], 2),
+                "actual_c": round(r["actual_c"], 2),
+                "lead_hours": round(r["lead_hours"], 1),
+            }
+            for r in rows
+        ]
+
     def prune(self) -> int:
-        """Drop readings past the retention window. Returns rows removed."""
+        """Drop readings and archived forecasts past the retention window."""
         cutoff = time.time() - self.retain_days * 86400
         with self._lock:
-            cur = self._db.execute("DELETE FROM readings WHERE ts < ?", (cutoff,))
+            removed = self._db.execute("DELETE FROM readings WHERE ts < ?", (cutoff,)).rowcount
+            removed += self._db.execute("DELETE FROM forecasts WHERE valid_ts < ?", (cutoff,)).rowcount
             self._db.commit()
-            return cur.rowcount
+            return removed
 
     def close(self) -> None:
         with self._lock:

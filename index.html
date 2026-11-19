@@ -101,6 +101,19 @@
         <div id="station-body"></div>
       </section>
 
+      <section class="card accuracy" id="accuracy" aria-labelledby="accuracy-title" hidden>
+        <div class="card-head">
+          <h2 id="accuracy-title" class="card-title">Forecast accuracy</h2>
+          <div class="segmented segmented-sm" role="group" aria-label="How far ahead the forecast was looking" id="lead-toggle">
+            <button type="button" data-lead="6" aria-pressed="false">6 h</button>
+            <button type="button" data-lead="12" aria-pressed="false">12 h</button>
+            <button type="button" data-lead="24" aria-pressed="true">24 h</button>
+            <button type="button" data-lead="48" aria-pressed="false">48 h</button>
+          </div>
+        </div>
+        <div id="accuracy-body"></div>
+      </section>
+
       <section class="card" aria-labelledby="hourly-title">
         <div class="card-head">
           <h2 id="hourly-title" class="card-title">Hourly forecast</h2>
@@ -150,6 +163,7 @@
   <script src="js/noaa.js"></script>
   <script src="js/charts.js"></script>
   <script src="js/station.js"></script>
+  <script src="js/accuracy.js"></script>
   <script src="js/app.js"></script>
 </body>
 </html>

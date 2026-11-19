@@ -367,10 +367,32 @@
     if (cfg && f.isNum(cfg.lat) && f.isNum(cfg.lon) && app && !app.hasPlace()) {
       app.loadPlace({ lat: cfg.lat, lon: cfg.lon, name: null, sub: null });
     }
+
+    // Scores change at most hourly, so they get their own slower refresh.
+    if (window.WX.accuracy) {
+      window.WX.accuracy.start(state.base);
+      setInterval(() => {
+        if (document.visibilityState === 'visible' && state.online) window.WX.accuracy.start(state.base);
+      }, 10 * 60 * 1000);
+    }
     clearInterval(state.timer);
     state.timer = setInterval(() => {
       if (document.visibilityState === 'visible') refresh();
     }, 30000);
+  }
+
+  // Same reason as in accuracy.js: the card may first render while the dashboard
+  // is hidden and everything measures 0 wide.
+  let lastWidth = 0;
+  const card = document.getElementById('station');
+  if (card && 'ResizeObserver' in window) {
+    new ResizeObserver((entries) => {
+      const w = Math.round(entries[0].contentRect.width);
+      if (w && w !== lastWidth) {
+        lastWidth = w;
+        if (state.current) requestAnimationFrame(render);
+      }
+    }).observe(card);
   }
 
   window.WX = window.WX || {};

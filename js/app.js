@@ -110,6 +110,7 @@
     renderDaily(d);
     resetDiscussion(d);
     if (window.WX.station) window.WX.station.render();
+    if (window.WX.accuracy) window.WX.accuracy.render();
   }
 
   function renderHeader(d) {

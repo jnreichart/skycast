@@ -28,6 +28,11 @@ The app then shows your actual back garden next to NOAA's forecast — including
 far your readings differ from the official NWS station it forecasts against — plus a
 24-hour history chart and a 3-hour pressure trend.
 
+It also **scores the forecast**. The station archives NOAA's hourly prediction for
+your grid, then compares it against what your sensor went on to measure, giving you
+a running verdict like *"NOAA's 24-hour forecast runs 2.0° too warm at your station"*
+broken down by lead time from 1 to 48 hours.
+
 The Pi serves the app itself on purpose: an HTTPS page can't read a plain-HTTP
 address on your LAN, so the hosted copy could never see your sensor. Same box, same
 origin, no certificates and no cloud account.
@@ -83,11 +88,13 @@ js/icons.js     inline SVG weather icons and NOAA text → icon mapping
 js/noaa.js      NWS API client and Open-Meteo place search
 js/charts.js    hourly SVG charts and table
 js/station.js   home station discovery, readings panel and history chart
+js/accuracy.js  forecast-vs-measured scoring card and chart
 js/app.js       state, rendering, insights, search, geolocation
 
 station/        optional Raspberry Pi weather station
   bme280.py     sensor driver (+ mock for development)
-  store.py      SQLite history, trends and extremes
+  store.py      SQLite history, trends, extremes and forecast scoring
+  forecast.py   archives NOAA's hourly forecast for later scoring
   server.py     sampler, JSON API, and static serving of this app
   install.sh    systemd service installer
 ```

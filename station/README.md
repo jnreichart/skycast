@@ -119,6 +119,25 @@ python3 server.py --mock --seed-hours 30 --altitude 1624
 history so the chart has something to draw. Readings are labelled *simulated* in
 the app so you can't mistake them for real ones.
 
+## Forecast accuracy
+
+If you pass `--lat` and `--lon`, the station also archives NOAA's hourly forecast
+for your grid once an hour, tagged with how far ahead each prediction was looking.
+Once your sensor has measured those hours, the two are compared — so you build a
+running record of how good the forecast actually is where you live.
+
+The app gets a **Forecast accuracy** card: a verdict ("NOAA's 24-hour forecast runs
+2.0° too warm at your station"), a chart of predicted against measured, and a table
+breaking down average miss, bias and worst miss by lead time from 1 to 48 hours.
+
+- Scores need **a day or two** before they mean anything: the station has to measure
+  hours that were forecast earlier. The card says so until then.
+- **Temperature only.** A BME280 can't verify rain, wind or cloud, so scoring those
+  would be dishonest. A rain gauge would make precipitation scoring possible.
+- Archiving adds one small API call an hour and roughly 1,150 rows a day.
+- `--forecast-interval` changes the poll rate; `--no-forecast-archive` turns it off.
+  Existing scores still display if you turn archiving off later.
+
 ## API
 
 All endpoints allow cross-origin reads, so you can pull from Home Assistant,
@@ -128,7 +147,8 @@ Grafana, a script, or anything else on your network.
 |---|---|
 | `GET /api/current` | Latest reading: temperature, humidity, dew point, station and sea-level pressure, 3-hour pressure trend, 24-hour extremes. |
 | `GET /api/history?hours=24&points=300` | Averaged time series, bucketed to at most `points` entries. `hours` accepts up to 90 days. |
-| `GET /api/health` | Service state, uptime, read count, last sensor error. |
+| `GET /api/accuracy?days=30&lead=24` | Forecast scoring: average miss, bias and worst miss by lead time, plus predicted-vs-measured pairs for charting. |
+| `GET /api/health` | Service state, uptime, read count, last sensor error, forecast archive status. |
 
 Temperatures are °C and pressures Pa; the app converts for display.
 
@@ -144,7 +164,6 @@ interval that's about 2,900 rows a day — roughly 40 MB a year, pruned after 40
 
 ## Where this could go next
 
-- **Rain gauge and anemometer.** Tipping-bucket and reed-switch units are a GPIO interrupt each; they'd slot into the sampler as extra fields.
+- **Rain gauge and anemometer.** Tipping-bucket and reed-switch units are a GPIO interrupt each; they'd slot into the sampler as extra fields — and would let the accuracy report score precipitation, not just temperature.
 - **Report to CWOP.** NOAA ingests Citizen Weather Observer Program data, so your readings could feed the forecasts you're reading.
-- **Forecast scoring.** Archive NOAA's hourly forecast each day and compare it against what the station actually measured — a running record of how accurate your local forecast really is.
 - **Access from outside the house.** A Tailscale or Cloudflare tunnel gives you HTTPS without opening a port.
